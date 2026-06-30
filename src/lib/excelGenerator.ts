@@ -5,51 +5,83 @@ export function generatePettyCashExcelBlob(
   transactions: PettyCashTransaction[],
   summary: PettyCashSummary
 ): Blob {
-  // Format data for sheet Row structure
-  const rows = transactions.map((t, idx) => ({
-    "No.": idx + 1,
-    Tanggal: t.date,
-    Karyawan: t.worker || summary.workerName || "Pekerja Lapangan",
-    Keterangan: t.description,
-    Kategori: t.category,
-    Tipe: t.type === "EXPENSE" ? "Pengeluaran (Out)" : "Pemasukan (In)",
-    Jumlah: t.amount,
-  }));
+  // Sort with Saldo Awal first (using a copy to prevent in-place mutation concerns)
+  const isSaldoAwal = (t: PettyCashTransaction) => 
+    (t.category === "Saldo Awal" || 
+     t.description.toLowerCase().includes("saldo awal"));
+
+  const sorted = [...transactions];
+  const saldoAwalTxs = sorted.filter(isSaldoAwal);
+  const otherTxs = sorted.filter(t => !isSaldoAwal(t));
+  
+  otherTxs.sort((a, b) => {
+    const dateA = new Date(a.date).getTime();
+    const dateB = new Date(b.date).getTime();
+    if (isNaN(dateA)) return 1;
+    if (isNaN(dateB)) return -1;
+    return dateA - dateB;
+  });
+  
+  const finalTxs = [...saldoAwalTxs, ...otherTxs];
+
+  // Build rows using Array of Arrays (aoa) for complete control over formatting
+  const data: any[][] = [
+    ["PERTANGGUNG JAWABAN PETTY CASH LAPANGAN", "", "", "", "", ""],
+    [`NAMA PEKERJA: ${summary.workerName || "Pekerja Lapangan"}`, "", "", "", "", ""],
+    [`BULAN / PERIODE: ${summary.reportMonth || "-"}`, "", "", "", "", ""],
+    ["", "", "", "", "", ""], // Empty row spacer
+    ["No.", "Tanggal", "Catatan Pengeluaran", "Pemasukan (In)", "Pengeluaran (Out)", "Saldo (Running)"]
+  ];
+
+  let runningBalance = 0;
+  let totalIncome = 0;
+  let totalExpense = 0;
+
+  finalTxs.forEach((t, idx) => {
+    const income = t.type === "INCOME" ? t.amount : 0;
+    const expense = t.type === "EXPENSE" ? t.amount : 0;
+    
+    runningBalance += (income - expense);
+    totalIncome += income;
+    totalExpense += expense;
+
+    data.push([
+      idx + 1,
+      t.date,
+      t.description,
+      income || "",
+      expense || "",
+      runningBalance
+    ]);
+  });
+
+  // Add Totals Footer Row
+  data.push(["", "", "TOTAL", totalIncome, totalExpense, runningBalance]);
 
   // Create sheet
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const ws = XLSX.utils.aoa_to_sheet(data);
+
+  // Set merges
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }, // Row 0 merged across 6 columns
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }, // Row 1 merged across 6 columns
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } }  // Row 2 merged across 6 columns
+  ];
 
   // Set column widths
   const maxCols = [
     { wch: 6 },  // No
     { wch: 15 }, // Tanggal
-    { wch: 20 }, // Karyawan
-    { wch: 40 }, // Keterangan
-    { wch: 20 }, // Kategori
-    { wch: 20 }, // Tipe
-    { wch: 15 }, // Jumlah
+    { wch: 45 }, // Catatan Pengeluaran
+    { wch: 18 }, // Pemasukan
+    { wch: 18 }, // Pengeluaran
+    { wch: 20 }, // Saldo
   ];
   ws["!cols"] = maxCols;
 
   // Create workbook
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Laporan Petty Cash");
-
-  // Create metadata / summary sheet
-  const summaryRows = [
-    ["LAPORAN PETTY CASH LAPANGAN", ""],
-    ["", ""],
-    ["Bulan / Periode:", summary.reportMonth],
-    ["Nama Pekerja:", summary.workerName || "-"],
-    ["", ""],
-    ["TOTAL PENERIMAAN:", summary.totalIncome],
-    ["TOTAL PENGELUARAN:", summary.totalExpense],
-    ["SISA SALDO:", summary.remainingBalance],
-    ["Dibuat Tanggal:", new Date().toLocaleDateString("id-ID")],
-  ];
-  const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
-  wsSummary["!cols"] = [{ wch: 25 }, { wch: 30 }];
-  XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan Laporan");
 
   // Write file as binary buffer
   const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });

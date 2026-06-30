@@ -46,7 +46,8 @@ import {
   ChevronUp,
   Cpu,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  ArrowUpDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -78,6 +79,27 @@ function formatLocalYYYYMMDD(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+// Helper to sort transactions putting "Saldo Awal" at the very top, and then the rest by date ascending
+function sortTransactionsWithSaldoAwalFirst(txs: PettyCashTransaction[]): PettyCashTransaction[] {
+  const isSaldoAwal = (t: PettyCashTransaction) => 
+    (t.category === "Saldo Awal" || 
+     t.description.toLowerCase().includes("saldo awal"));
+
+  const saldoAwalTxs = txs.filter(isSaldoAwal);
+  const otherTxs = txs.filter(t => !isSaldoAwal(t));
+
+  // Sort other transactions by date ascending
+  otherTxs.sort((a, b) => {
+    const dateA = new Date(a.date).getTime();
+    const dateB = new Date(b.date).getTime();
+    if (isNaN(dateA)) return 1;
+    if (isNaN(dateB)) return -1;
+    return dateA - dateB;
+  });
+
+  return [...saldoAwalTxs, ...otherTxs];
 }
 
 // Helper to generate deterministic daily pin
@@ -427,6 +449,9 @@ export default function App() {
   const [newTxAmount, setNewTxAmount] = useState<number>(0);
   const [newTxWorker, setNewTxWorker] = useState<string>("");
   const [newTxType, setNewTxType] = useState<TransactionType>(TransactionType.EXPENSE);
+
+  // Swap/Tukar Baris States
+  const [swapStartIndex, setSwapStartIndex] = useState<number | null>(null);
 
   // Workers management settings state
   const [newWorkerName, setNewWorkerName] = useState("");
@@ -1396,10 +1421,12 @@ export default function App() {
       return;
     }
 
+    const finalCategory = newTxDesc.toLowerCase().includes("saldo awal") ? "Saldo Awal" : "Lain-lain";
+
     const newTx: PettyCashTransaction = {
       date: newTxDate || new Date().toISOString().split("T")[0],
       description: newTxDesc,
-      category: newTxCat,
+      category: finalCategory,
       amount: newTxAmount,
       worker: newTxWorker || activeWorkspaceReport.summary.workerName,
       type: newTxType,
@@ -1428,8 +1455,7 @@ export default function App() {
       summary: updatedSummary,
     };
 
-    setActiveWorkspaceReport(updatedReport);
-    setPettyCashReports(pettyCashReports.map(r => r.id === updatedReport.id ? updatedReport : r));
+    updateWorkspaceReportAndSync(updatedReport);
 
     // Reset inputs
     setNewTxDesc("");
@@ -1461,8 +1487,7 @@ export default function App() {
       summary: updatedSummary,
     };
 
-    setActiveWorkspaceReport(updatedReport);
-    setPettyCashReports(pettyCashReports.map(r => r.id === updatedReport.id ? updatedReport : r));
+    updateWorkspaceReportAndSync(updatedReport);
   };
 
   const handleMoveWorkspaceTx = (index: number, direction: number) => {
@@ -1484,9 +1509,57 @@ export default function App() {
     updateWorkspaceReportAndSync(updatedReport);
   };
 
+  const handleSelectSwapRow = (index: number) => {
+    if (!activeWorkspaceReport) return;
+    if (swapStartIndex === null) {
+      setSwapStartIndex(index);
+    } else {
+      if (swapStartIndex === index) {
+        // Clicked the same row, cancel selection
+        setSwapStartIndex(null);
+        return;
+      }
+      
+      // Swap the transactions
+      const transactions = [...activeWorkspaceReport.transactions];
+      const temp = transactions[swapStartIndex];
+      transactions[swapStartIndex] = transactions[index];
+      transactions[index] = temp;
+      
+      // Update and sync
+      const updatedReport = {
+        ...activeWorkspaceReport,
+        transactions,
+      };
+      updateWorkspaceReportAndSync(updatedReport);
+      setSwapStartIndex(null);
+    }
+  };
+
   const updateWorkspaceReportAndSync = (updatedReport: PettyCashReport) => {
-    setActiveWorkspaceReport(updatedReport);
-    setPettyCashReports(pettyCashReports.map(r => r.id === updatedReport.id ? updatedReport : r));
+    const sortedTxs = sortTransactionsWithSaldoAwalFirst(updatedReport.transactions);
+    
+    // Recalculate totals
+    let incomeSum = 0;
+    let expenseSum = 0;
+    sortedTxs.forEach((t) => {
+      if (t.type === TransactionType.INCOME) incomeSum += t.amount;
+      else expenseSum += t.amount;
+    });
+
+    const finalReport: PettyCashReport = {
+      ...updatedReport,
+      transactions: sortedTxs,
+      summary: {
+        ...updatedReport.summary,
+        totalIncome: incomeSum,
+        totalExpense: expenseSum,
+        remainingBalance: incomeSum - expenseSum,
+      }
+    };
+
+    setActiveWorkspaceReport(finalReport);
+    setPettyCashReports(pettyCashReports.map(r => r.id === finalReport.id ? finalReport : r));
   };
 
   const handleDeletePettyCashReport = (id: string, e: React.MouseEvent) => {
@@ -4993,6 +5066,24 @@ export default function App() {
                       </span>
                     </div>
 
+                    {swapStartIndex !== null && (
+                      <div className="mb-4 bg-amber-50/90 border border-amber-200 text-amber-800 rounded-xl p-3 text-xs flex items-center justify-between shadow-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold flex items-center gap-1">
+                            <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
+                            Mode Tukar Posisi Aktif:
+                          </span>
+                          <span>Klik tombol tukar (<ArrowUpDown className="w-3 h-3 inline" />) pada baris lain atau langsung klik baris mana saja untuk bertukar tempat dengan Baris #{swapStartIndex + 1}.</span>
+                        </div>
+                        <button 
+                          onClick={() => setSwapStartIndex(null)} 
+                          className="text-amber-700 hover:text-amber-900 font-bold px-2 py-1 bg-amber-100 hover:bg-amber-200 rounded-lg cursor-pointer transition-colors"
+                        >
+                          Batal
+                        </button>
+                      </div>
+                    )}
+
                     {(() => {
                       // Pre-calculate running balances for all rows
                       const runningBalances: number[] = [];
@@ -5014,7 +5105,6 @@ export default function App() {
                                 <th className="p-3 w-10 text-center">No</th>
                                 <th className="p-3 w-28">Tanggal</th>
                                 <th className="p-3">Keterangan / Catatan Pengeluaran</th>
-                                <th className="p-3 w-28">Kategori</th>
                                 <th className="p-3 w-32 text-right text-emerald-700">Pemasukan (In)</th>
                                 <th className="p-3 w-32 text-right text-red-700">Pengeluaran (Out)</th>
                                 <th className="p-3 w-36 text-right">Saldo (Running)</th>
@@ -5025,7 +5115,21 @@ export default function App() {
                               {activeWorkspaceReport.transactions.map((tx, index) => {
                                 const rowSaldo = runningBalances[index];
                                 return (
-                                  <tr key={index} className="hover:bg-slate-50/30">
+                                  <tr 
+                                    key={index} 
+                                    className={`hover:bg-slate-50/30 transition-colors ${
+                                      swapStartIndex === index 
+                                        ? "bg-amber-50/80 border-y border-amber-300 ring-1 ring-amber-300 ring-inset" 
+                                        : swapStartIndex !== null
+                                        ? "hover:bg-amber-50/20 cursor-pointer"
+                                        : ""
+                                    }`}
+                                    onClick={() => {
+                                      if (swapStartIndex !== null) {
+                                        handleSelectSwapRow(index);
+                                      }
+                                    }}
+                                  >
                                     <td className="p-3 text-center text-slate-400 font-mono">{index + 1}</td>
                                     <td className="p-3">
                                       <input
@@ -5051,23 +5155,7 @@ export default function App() {
                                         className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-slate-300 focus:outline-none font-bold text-slate-800"
                                       />
                                     </td>
-                                    <td className="p-3">
-                                      <select
-                                        value={tx.category}
-                                        onChange={(e) => {
-                                          const updated = [...activeWorkspaceReport.transactions];
-                                          updated[index] = { ...updated[index], category: e.target.value };
-                                          updateWorkspaceReportAndSync({ ...activeWorkspaceReport, transactions: updated });
-                                        }}
-                                        className="bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 py-0.5 text-slate-700"
-                                      >
-                                        {COMMON_CATEGORIES.map(cat => (
-                                          <option key={cat} value={cat}>{cat}</option>
-                                        ))}
-                                        <option value="Penerimaan Kas">Penerimaan Kas</option>
-                                        <option value="Saldo Awal">Saldo Awal</option>
-                                      </select>
-                                    </td>
+
                                     
                                     {/* Column 5: Pemasukan */}
                                     <td className="p-3 text-right">
@@ -5150,6 +5238,23 @@ export default function App() {
                                        <div className="flex items-center justify-center gap-1.5">
                                          <button
                                            type="button"
+                                           onClick={(e) => {
+                                             e.stopPropagation();
+                                             handleSelectSwapRow(index);
+                                           }}
+                                           className={`p-1 rounded transition cursor-pointer ${
+                                             swapStartIndex === index
+                                               ? "bg-amber-500 text-white animate-pulse"
+                                               : swapStartIndex !== null
+                                               ? "bg-amber-100 text-amber-700 border border-amber-300 font-bold"
+                                               : "text-slate-400 hover:text-amber-600 hover:bg-slate-100"
+                                           }`}
+                                           title={swapStartIndex === index ? "Batal atau klik baris lain untuk menukar posisi" : "Tukar Posisi Baris (Swap)"}
+                                         >
+                                           <ArrowUpDown className="w-3.5 h-3.5" />
+                                         </button>
+                                         <button
+                                           type="button"
                                            disabled={index === 0}
                                            onClick={() => handleMoveWorkspaceTx(index, -1)}
                                            className={`p-1 rounded transition cursor-pointer ${
@@ -5207,19 +5312,6 @@ export default function App() {
                                     onChange={(e) => setNewTxDesc(e.target.value)}
                                     className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
                                   />
-                                </td>
-                                <td className="p-3">
-                                  <select
-                                    value={newTxCat}
-                                    onChange={(e) => setNewTxCat(e.target.value)}
-                                    className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
-                                  >
-                                    {COMMON_CATEGORIES.map(cat => (
-                                      <option key={cat} value={cat}>{cat}</option>
-                                    ))}
-                                    <option value="Penerimaan Kas">Penerimaan Kas</option>
-                                    <option value="Saldo Awal">Saldo Awal</option>
-                                  </select>
                                 </td>
                                 
                                 {/* Pemasukan input for New Transaction */}
