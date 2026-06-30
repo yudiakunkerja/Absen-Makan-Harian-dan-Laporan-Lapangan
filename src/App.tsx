@@ -19,6 +19,7 @@ import {
   FolderPlus, 
   ArrowRight,
   Database,
+  Building,
   Globe,
   Upload,
   RefreshCw,
@@ -207,12 +208,137 @@ export default function App() {
     return null;
   });
 
+  const [rkCompanies, setRkCompanies] = useState<{ name: string; banks: string[] }[]>(() => {
+    const saved = localStorage.getItem("rk_companies");
+    return saved ? JSON.parse(saved) : [
+      { name: "PT. Nusantara Mineral Sukses Abadi", banks: ["BNI", "BCA", "Mandiri"] },
+      { name: "PT. Nusantara Mineral Mandiri", banks: ["BCA", "BRI"] }
+    ];
+  });
+  
+  const [selectedRkCompany, setSelectedRkCompany] = useState<string>(() => {
+    const saved = localStorage.getItem("selected_rk_company");
+    return saved || "PT. Nusantara Mineral Sukses Abadi";
+  });
+
+  const [selectedRkBank, setSelectedRkBank] = useState<string>(() => {
+    const saved = localStorage.getItem("selected_rk_bank");
+    return saved || "BNI";
+  });
+
+  const [newRkCompanyName, setNewRkCompanyName] = useState<string>("");
+  const [newRkBankName, setNewRkBankName] = useState<string>("");
+
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState<boolean>(false);
   const [bankStatementToDelete, setBankStatementToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem("bank_statement_reports", JSON.stringify(bankStatements));
   }, [bankStatements]);
+
+  useEffect(() => {
+    localStorage.setItem("rk_companies", JSON.stringify(rkCompanies));
+  }, [rkCompanies]);
+
+  useEffect(() => {
+    localStorage.setItem("selected_rk_company", selectedRkCompany);
+  }, [selectedRkCompany]);
+
+  useEffect(() => {
+    localStorage.setItem("selected_rk_bank", selectedRkBank);
+  }, [selectedRkBank]);
+
+  useEffect(() => {
+    const comp = rkCompanies.find(c => c.name === selectedRkCompany);
+    if (comp && comp.banks.length > 0) {
+      if (!comp.banks.includes(selectedRkBank)) {
+        setSelectedRkBank(comp.banks[0]);
+      }
+    } else {
+      setSelectedRkBank("");
+    }
+  }, [selectedRkCompany, rkCompanies]);
+
+  const handleAddCompany = () => {
+    const trimmed = newRkCompanyName.trim();
+    if (!trimmed) return;
+    if (rkCompanies.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
+      alert("Nama Perusahaan (PT) sudah terdaftar.");
+      return;
+    }
+    const updated = [...rkCompanies, { name: trimmed, banks: [] }];
+    setRkCompanies(updated);
+    setSelectedRkCompany(trimmed);
+    setNewRkCompanyName("");
+  };
+
+  const handleDeleteCompany = (compName: string) => {
+    if (window.confirm(`Apakah Anda yakin ingin menghapus PT "${compName}" beserta seluruh daftar banknya?`)) {
+      const updated = rkCompanies.filter(c => c.name !== compName);
+      setRkCompanies(updated);
+      if (selectedRkCompany === compName) {
+        setSelectedRkCompany(updated[0]?.name || "");
+      }
+    }
+  };
+
+  const handleAddBank = () => {
+    const trimmed = newRkBankName.trim();
+    if (!trimmed) return;
+    if (!selectedRkCompany) {
+      alert("Silakan pilih Perusahaan (PT) terlebih dahulu.");
+      return;
+    }
+    const updated = rkCompanies.map(c => {
+      if (c.name === selectedRkCompany) {
+        if (c.banks.some(b => b.toLowerCase() === trimmed.toLowerCase())) {
+          alert("Bank ini sudah terdaftar untuk perusahaan tersebut.");
+          return c;
+        }
+        return { ...c, banks: [...c.banks, trimmed] };
+      }
+      return c;
+    });
+    setRkCompanies(updated);
+    setSelectedRkBank(trimmed);
+    setNewRkBankName("");
+  };
+
+  const handleDeleteBank = (compName: string, bankName: string) => {
+    if (window.confirm(`Hapus bank "${bankName}" dari PT "${compName}"?`)) {
+      const updated = rkCompanies.map(c => {
+        if (c.name === compName) {
+          return { ...c, banks: c.banks.filter(b => b !== bankName) };
+        }
+        return c;
+      });
+      setRkCompanies(updated);
+    }
+  };
+
+  const filteredBankStatements = bankStatements.filter((report) => {
+    const reportCompany = report.companyName || "PT. Nusantara Mineral Sukses Abadi";
+    const reportBank = report.bankName || "BNI";
+    return reportCompany === selectedRkCompany && reportBank === selectedRkBank;
+  });
+
+  // Automatically update activeBankStatement when selected company/bank or bankStatements changes
+  useEffect(() => {
+    const filtered = bankStatements.filter((report) => {
+      const reportCompany = report.companyName || "PT. Nusantara Mineral Sukses Abadi";
+      const reportBank = report.bankName || "BNI";
+      return reportCompany === selectedRkCompany && reportBank === selectedRkBank;
+    });
+    if (filtered.length > 0) {
+      // Find if activeBankStatement is in the filtered list, if not set to first
+      const exists = filtered.find(f => f.id === activeBankStatement?.id);
+      if (!exists) {
+        setActiveBankStatement(filtered[0]);
+      }
+    } else {
+      setActiveBankStatement(null);
+    }
+  }, [selectedRkCompany, selectedRkBank, bankStatements, activeBankStatement?.id]);
 
   // Self-profile editing states
   const [editBankName, setEditBankName] = useState<string>("");
@@ -1112,9 +1238,24 @@ export default function App() {
         })),
       };
 
-      setPettyCashReports([processedReport, ...pettyCashReports]);
+      const updatedReports = [processedReport, ...pettyCashReports];
+      setPettyCashReports(updatedReports);
+      localStorage.setItem("petty_cash_reports", JSON.stringify(updatedReports));
       setActiveWorkspaceReport(processedReport);
       setFileToUpload(null);
+
+      await syncStateToServer(
+        workers,
+        attendanceRecords,
+        weeklyReports,
+        updatedReports,
+        attendancePin,
+        signatures,
+        pettyCashHolders,
+        attendanceLogs,
+        waMethod,
+        autoReminderHour
+      );
 
     } catch (error: any) {
       console.error(error);
@@ -1163,8 +1304,14 @@ export default function App() {
         id: newReportId,
         fileName: bankStatementFile.name,
         uploadedAt: new Date().toISOString(),
-        summary: rawResult.summary,
+        summary: {
+          ...rawResult.summary,
+          bankName: selectedRkBank || rawResult.summary?.bankName || "BCA",
+          accountHolder: selectedRkCompany || rawResult.summary?.accountHolder || "PT. Nusantara Mineral Sukses Abadi"
+        },
         transactions: rawResult.transactions || [],
+        companyName: selectedRkCompany,
+        bankName: selectedRkBank,
       };
 
       const updatedStatements = [processedReport, ...bankStatements];
@@ -1189,12 +1336,12 @@ export default function App() {
       const demoId = "BS-DEMO-" + Math.floor(Math.random() * 9000 + 1000);
       const demoReport: BankStatementReport = {
         id: demoId,
-        fileName: "Rekening_Koran_BCA_PT_Nusa_Mineral_Mei_2026.pdf",
+        fileName: `Rekening_Koran_${selectedRkBank}_${selectedRkCompany.replace(/\s+/g, '_')}_Mei_2026.pdf`,
         uploadedAt: new Date().toISOString(),
         summary: {
-          bankName: "BCA (Bank Central Asia)",
+          bankName: selectedRkBank || "BCA (Bank Central Asia)",
           accountNumber: "8472910482",
-          accountHolder: "PT. Nusantara Mineral Sukses Abadi",
+          accountHolder: selectedRkCompany || "PT. Nusantara Mineral Sukses Abadi",
           period: "01 Mei 2026 - 31 Mei 2026",
           totalDebit: 18500000,
           totalCredit: 45000000,
@@ -1208,6 +1355,8 @@ export default function App() {
           { date: "2026-05-18", description: "SWASTA SEWA EXCAVATOR CAT320", amount: 4500000, type: "DEBIT", balance: 39500000 },
           { date: "2026-05-25", description: "BIAYA ADMIN REKENING BULANAN", amount: 500000, type: "DEBIT", balance: 39000000 },
         ],
+        companyName: selectedRkCompany,
+        bankName: selectedRkBank,
       };
 
       const updatedStatements = [demoReport, ...bankStatements];
@@ -1355,9 +1504,24 @@ export default function App() {
         };
       }
 
-      setPettyCashReports([demoReport, ...pettyCashReports]);
+      const updatedReports = [demoReport, ...pettyCashReports];
+      setPettyCashReports(updatedReports);
+      localStorage.setItem("petty_cash_reports", JSON.stringify(updatedReports));
       setActiveWorkspaceReport(demoReport);
       setIsParsing(false);
+
+      syncStateToServer(
+        workers,
+        attendanceRecords,
+        weeklyReports,
+        updatedReports,
+        attendancePin,
+        signatures,
+        pettyCashHolders,
+        attendanceLogs,
+        waMethod,
+        autoReminderHour
+      );
     }, 1800);
   };
 
@@ -1558,8 +1722,23 @@ export default function App() {
       }
     };
 
+    const updatedReports = pettyCashReports.map(r => r.id === finalReport.id ? finalReport : r);
     setActiveWorkspaceReport(finalReport);
-    setPettyCashReports(pettyCashReports.map(r => r.id === finalReport.id ? finalReport : r));
+    setPettyCashReports(updatedReports);
+    localStorage.setItem("petty_cash_reports", JSON.stringify(updatedReports));
+
+    syncStateToServer(
+      workers,
+      attendanceRecords,
+      weeklyReports,
+      updatedReports,
+      attendancePin,
+      signatures,
+      pettyCashHolders,
+      attendanceLogs,
+      waMethod,
+      autoReminderHour
+    );
   };
 
   const handleDeletePettyCashReport = (id: string, e: React.MouseEvent) => {
@@ -1567,9 +1746,23 @@ export default function App() {
     if (window.confirm("Apakah Anda yakin ingin menghapus laporan petty cash ini dari riwayat?")) {
       const remainingReports = pettyCashReports.filter(r => r.id !== id);
       setPettyCashReports(remainingReports);
+      localStorage.setItem("petty_cash_reports", JSON.stringify(remainingReports));
       if (activeWorkspaceReport?.id === id) {
         setActiveWorkspaceReport(remainingReports[0] || null);
       }
+
+      syncStateToServer(
+        workers,
+        attendanceRecords,
+        weeklyReports,
+        remainingReports,
+        attendancePin,
+        signatures,
+        pettyCashHolders,
+        attendanceLogs,
+        waMethod,
+        autoReminderHour
+      );
     }
   };
 
@@ -2837,29 +3030,106 @@ export default function App() {
     return report.summary?.workerName === selectedUploadHolder;
   });
 
-  // Calculate stats for selected holder
-  let combinedIncome = 0;
-  let combinedExpense = 0;
-  let combinedBalance = 0;
-
-  filteredReports.forEach((report) => {
-    combinedIncome += report.summary?.totalIncome || 0;
-    combinedExpense += report.summary?.totalExpense || 0;
-    combinedBalance += report.summary?.remainingBalance || 0;
+  // Calculate stats for selected holder without double-counting carried-over balances
+  const sortedFilteredReports = [...filteredReports].sort((a, b) => {
+    return new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime();
   });
 
-  // Calculate accumulated balances for all unique holders
+  let initialSaldoAwal = 0;
+  let sumNewIncomes = 0;
+  let sumExpenses = 0;
+
+  if (sortedFilteredReports.length > 0) {
+    // Starting balance of the oldest report of this holder
+    const oldestReport = sortedFilteredReports[0];
+    const oldestTxs = oldestReport.transactions || [];
+    const oldestFirstTx = oldestTxs[0];
+    const oldestIsSisaSaldo = oldestFirstTx && (
+      oldestFirstTx.description.toLowerCase().includes("sisa") || 
+      oldestFirstTx.description.toLowerCase().includes("awal") || 
+      oldestFirstTx.description.toLowerCase().includes("sebelum")
+    );
+    initialSaldoAwal = oldestIsSisaSaldo 
+      ? (oldestFirstTx.type === TransactionType.INCOME ? oldestFirstTx.amount : -oldestFirstTx.amount) 
+      : 0;
+
+    // Sum up new incomes and expenses across all of this holder's reports
+    filteredReports.forEach((report) => {
+      const txs = report.transactions || [];
+      const firstTx = txs[0];
+      const isSisaSaldo = firstTx && (
+        firstTx.description.toLowerCase().includes("sisa") || 
+        firstTx.description.toLowerCase().includes("awal") || 
+        firstTx.description.toLowerCase().includes("sebelum")
+      );
+
+      const reportNewIncomes = txs
+        .filter((_, idx) => !(idx === 0 && isSisaSaldo))
+        .reduce((sum, tx) => tx.type === TransactionType.INCOME ? sum + tx.amount : sum, 0);
+
+      const reportExpenses = txs
+        .filter((_, idx) => !(idx === 0 && isSisaSaldo))
+        .reduce((sum, tx) => tx.type === TransactionType.EXPENSE ? sum + tx.amount : sum, 0);
+
+      sumNewIncomes += reportNewIncomes;
+      sumExpenses += reportExpenses;
+    });
+  }
+
+  const combinedIncome = initialSaldoAwal + sumNewIncomes;
+  const combinedExpense = sumExpenses;
+  const combinedBalance = initialSaldoAwal + sumNewIncomes - sumExpenses;
+
+  // Calculate accumulated balances for all unique holders (non-double-counting)
   const holderBalances = uniqueHolders.map(holderName => {
     const holderReports = pettyCashReports.filter(r => r.summary?.workerName === holderName);
-    let income = 0;
-    let expense = 0;
-    holderReports.forEach(r => {
-      income += r.summary?.totalIncome || 0;
-      expense += r.summary?.totalExpense || 0;
+    
+    const sortedHolderReports = [...holderReports].sort((a, b) => {
+      return new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime();
     });
+
+    let hInitialSaldoAwal = 0;
+    let hSumNewIncomes = 0;
+    let hSumExpenses = 0;
+
+    if (sortedHolderReports.length > 0) {
+      const oldestReport = sortedHolderReports[0];
+      const oldestTxs = oldestReport.transactions || [];
+      const oldestFirstTx = oldestTxs[0];
+      const oldestIsSisaSaldo = oldestFirstTx && (
+        oldestFirstTx.description.toLowerCase().includes("sisa") || 
+        oldestFirstTx.description.toLowerCase().includes("awal") || 
+        oldestFirstTx.description.toLowerCase().includes("sebelum")
+      );
+      hInitialSaldoAwal = oldestIsSisaSaldo 
+        ? (oldestFirstTx.type === TransactionType.INCOME ? oldestFirstTx.amount : -oldestFirstTx.amount) 
+        : 0;
+
+      holderReports.forEach((report) => {
+        const txs = report.transactions || [];
+        const firstTx = txs[0];
+        const isSisaSaldo = firstTx && (
+          firstTx.description.toLowerCase().includes("sisa") || 
+          firstTx.description.toLowerCase().includes("awal") || 
+          firstTx.description.toLowerCase().includes("sebelum")
+        );
+
+        const reportNewIncomes = txs
+          .filter((_, idx) => !(idx === 0 && isSisaSaldo))
+          .reduce((sum, tx) => tx.type === TransactionType.INCOME ? sum + tx.amount : sum, 0);
+
+        const reportExpenses = txs
+          .filter((_, idx) => !(idx === 0 && isSisaSaldo))
+          .reduce((sum, tx) => tx.type === TransactionType.EXPENSE ? sum + tx.amount : sum, 0);
+
+        hSumNewIncomes += reportNewIncomes;
+        hSumExpenses += reportExpenses;
+      });
+    }
+
     return {
       name: holderName,
-      balance: income - expense
+      balance: hInitialSaldoAwal + hSumNewIncomes - hSumExpenses
     };
   });
 
@@ -5431,25 +5701,71 @@ export default function App() {
                   <span>Upload Rekening Koran</span>
                 </h3>
                 <p className="text-xs text-slate-500 mb-4 text-balance leading-relaxed">
-                  Unggah file PDF atau Gambar (PNG/JPG) rekening koran Anda. AI akan membaca nama bank, nomor rekening, pemilik, periode, dan merinci seluruh mutasi transaksi.
+                  Unggah file PDF atau Gambar (PNG/JPG) rekening koran Anda. AI akan membaca nama bank, nomor rekening, pemilik, periode, dan merinci seluruh mutasi transaksi sesuai kepemilikan.
                 </p>
+
+                {/* PT & Bank Selection Fields */}
+                <div className="space-y-3 mb-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Pilih Perusahaan (PT) <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={selectedRkCompany}
+                      onChange={(e) => setSelectedRkCompany(e.target.value)}
+                      className="w-full bg-white border border-slate-250 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium cursor-pointer"
+                    >
+                      <option value="">-- Pilih PT --</option>
+                      {rkCompanies.map((c) => (
+                        <option key={c.name} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Pilih Rekening Bank <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={selectedRkBank}
+                      onChange={(e) => setSelectedRkBank(e.target.value)}
+                      className="w-full bg-white border border-slate-250 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium cursor-pointer"
+                      disabled={!selectedRkCompany}
+                    >
+                      <option value="">-- Pilih Bank --</option>
+                      {((rkCompanies.find(c => c.name === selectedRkCompany))?.banks || []).map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
                 {/* Drag and Drop Zone */}
                 <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-indigo-500 transition relative bg-slate-50/50">
                   <input
                     type="file"
                     accept="application/pdf,image/*"
+                    disabled={!selectedRkCompany || !selectedRkBank}
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
                         setBankStatementFile(e.target.files[0]);
                         setBankStatementParseError(null);
                       }
                     }}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    className={`absolute inset-0 w-full h-full opacity-0 ${(!selectedRkCompany || !selectedRkBank) ? "cursor-not-allowed" : "cursor-pointer"}`}
                   />
                   <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                   <p className="text-xs font-semibold text-slate-700">Tarik berkas ke sini atau Klik untuk memilih</p>
                   <p className="text-[10px] text-slate-500 mt-1">PDF, PNG, JPG maks 10MB</p>
+                  {(!selectedRkCompany || !selectedRkBank) && (
+                    <div className="absolute inset-0 bg-slate-100/80 rounded-xl flex items-center justify-center p-4">
+                      <p className="text-xs font-bold text-slate-600 text-center">Silakan pilih PT & Bank terlebih dahulu di atas</p>
+                    </div>
+                  )}
                 </div>
 
                 {bankStatementFile && (
@@ -5474,9 +5790,9 @@ export default function App() {
                 <div className="flex gap-2 mt-4">
                   <button
                     onClick={handleBankStatementUploadAndParse}
-                    disabled={isParsingBankStatement || !bankStatementFile}
+                    disabled={isParsingBankStatement || !bankStatementFile || !selectedRkCompany || !selectedRkBank}
                     className={`flex-1 font-bold text-xs py-2.5 rounded-xl border flex items-center justify-center gap-2 transition duration-200 ${
-                      isParsingBankStatement 
+                      (isParsingBankStatement || !bankStatementFile || !selectedRkCompany || !selectedRkBank)
                         ? "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200"
                         : "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent cursor-pointer shadow-sm shadow-indigo-100"
                     }`}
@@ -5496,9 +5812,13 @@ export default function App() {
 
                   <button
                     onClick={handleLoadDemoBankStatement}
-                    disabled={isParsingBankStatement}
+                    disabled={isParsingBankStatement || !selectedRkCompany || !selectedRkBank}
                     title="Muat contoh demo rekening koran instan"
-                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold text-xs px-3 rounded-xl transition cursor-pointer flex items-center justify-center"
+                    className={`font-bold text-xs px-3 rounded-xl transition flex items-center justify-center ${
+                      (!selectedRkCompany || !selectedRkBank)
+                        ? "bg-slate-50 text-slate-300 border border-slate-200 cursor-not-allowed"
+                        : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 cursor-pointer"
+                    }`}
                   >
                     <span>Demo ⚡</span>
                   </button>
@@ -5506,25 +5826,139 @@ export default function App() {
 
                 <div className="mt-4 text-[10px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-150 flex items-start gap-1.5 leading-relaxed">
                   <span>💡</span>
-                  <span><strong>Tip:</strong> Pindai rekening koran Anda. AI secara otomatis mengenali nama bank penerbit (BCA, Mandiri, BRI, BNI dll) dan mengelompokkan mutasi debet/kredit secara terpisah serta akurat.</span>
+                  <span><strong>Tip:</strong> Pilih Perusahaan (PT) dan bank yang sesuai sebelum memindai rekening koran Anda. AI akan mengelompokkan riwayat file persis pada area PT & Bank terpilih.</span>
                 </div>
 
               </div>
 
+              {/* KELOLA PERUSAHAAN & BANK REKENING KORAN */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                <h3 className="text-sm font-bold text-slate-900 font-display mb-2 flex items-center gap-1.5">
+                  <Building className="w-4 h-4 text-indigo-600" />
+                  <span>Kelola Perusahaan & Bank</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mb-4">
+                  Tambahkan daftar Perusahaan (PT) baru atau rekening bank baru di bawah naungan PT tersebut.
+                </p>
+
+                <div className="space-y-4">
+                  {/* Tambah Perusahaan */}
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tambah PT Baru:</div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nama PT Baru..."
+                        value={newRkCompanyName}
+                        onChange={(e) => setNewRkCompanyName(e.target.value)}
+                        className="flex-1 bg-slate-50 border border-slate-250 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handleAddCompany();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCompany}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0"
+                      >
+                        Tambah PT
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Tambah Bank ke PT Terpilih */}
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Tambah Bank ke {selectedRkCompany.length > 25 ? selectedRkCompany.substring(0, 25) + "..." : selectedRkCompany || "PT"}:
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Contoh: BCA, BNI, Mandiri..."
+                        value={newRkBankName}
+                        onChange={(e) => setNewRkBankName(e.target.value)}
+                        className="flex-1 bg-slate-50 border border-slate-250 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            handleAddBank();
+                          }
+                        }}
+                        disabled={!selectedRkCompany}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddBank}
+                        disabled={!selectedRkCompany}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Tambah Bank
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Daftar PT & Bank Terdaftar */}
+                  <div className="border-t border-slate-100 pt-3 space-y-2">
+                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Daftar PT & Bank Aktif:</div>
+                    <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-1">
+                      {rkCompanies.map((comp) => (
+                        <div key={comp.name} className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                          <div className="flex items-center justify-between gap-1.5 font-bold text-slate-800">
+                            <span className="truncate">{comp.name}</span>
+                            {rkCompanies.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCompany(comp.name)}
+                                className="text-slate-400 hover:text-red-500 font-sans font-bold text-xs shrink-0 cursor-pointer"
+                                title="Hapus PT ini"
+                              >
+                                &times;
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {comp.banks.map((b) => (
+                              <div key={b} className="bg-white border border-slate-200 rounded-md px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 flex items-center gap-1">
+                                <span>{b}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBank(comp.name, b)}
+                                  className="text-slate-400 hover:text-red-500 font-sans hover:bg-slate-100 rounded px-0.5 shrink-0 cursor-pointer"
+                                  title="Hapus Bank ini"
+                                >
+                                  &times;
+                                </button>
+                              </div>
+                            ))}
+                            {comp.banks.length === 0 && (
+                              <span className="text-[10px] text-slate-400 italic">Belum ada bank</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* BANK STATEMENT LIST / HISTORY CARD */}
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
-                <h3 className="text-sm font-bold text-slate-900 font-display mb-3 flex items-center gap-1.5">
+                <h3 className="text-sm font-bold text-slate-900 font-display mb-1 flex items-center gap-1.5">
                   <Clock className="w-4 h-4 text-indigo-600" />
-                  <span>Riwayat Rekening Koran ({bankStatements.length})</span>
+                  <span>Riwayat Rekening Koran ({filteredBankStatements.length})</span>
                 </h3>
+                <p className="text-[10px] text-slate-500 mb-3 truncate font-medium">
+                  {selectedRkCompany || "Semua PT"} - {selectedRkBank || "Semua Bank"}
+                </p>
 
-                {bankStatements.length === 0 ? (
+                {filteredBankStatements.length === 0 ? (
                   <div className="text-center py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                    <p className="text-xs text-slate-400">Belum ada riwayat dokumen.</p>
+                    <p className="text-xs text-slate-400">Belum ada dokumen untuk kombinasi ini.</p>
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
-                    {bankStatements.map((report) => (
+                    {filteredBankStatements.map((report) => (
                       <div
                         key={report.id}
                         onClick={() => setActiveBankStatement(report)}
@@ -5564,15 +5998,23 @@ export default function App() {
                   {/* BANK STATEMENT METADATA CARD */}
                   <div className="bg-slate-900 text-white rounded-2xl border border-slate-800 p-6 shadow-xl space-y-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                      <div className="space-y-1 text-left">
-                        <span className="text-[10px] font-mono font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2.5 py-1 rounded-full uppercase tracking-widest">
-                          HASIL PEMBACAAN REKENING KORAN
-                        </span>
-                        <h2 className="text-lg font-extrabold font-display tracking-tight text-white mt-2 flex items-center gap-2">
+                      <div className="space-y-2 text-left">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[9px] font-mono font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2.5 py-1 rounded-full uppercase tracking-widest">
+                            HASIL PEMBACAAN REKENING KORAN
+                          </span>
+                          <span className="text-[9px] font-mono font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-full uppercase tracking-widest">
+                            {activeBankStatement.companyName || "PT. Nusantara Mineral Sukses Abadi"}
+                          </span>
+                          <span className="text-[9px] font-mono font-extrabold bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2.5 py-1 rounded-full uppercase tracking-widest">
+                            {activeBankStatement.bankName || activeBankStatement.summary.bankName || "BNI"}
+                          </span>
+                        </div>
+                        <h2 className="text-lg font-extrabold font-display tracking-tight text-white mt-1.5 flex items-center gap-2">
                           <span>🏦 {activeBankStatement.summary.bankName}</span>
                         </h2>
                         <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
-                          Sistem berhasil mengenali format dokumen bank dan memisahkan mutasi debet/kredit secara aman.
+                          Sistem berhasil mengenali format dokumen bank dan memisahkan mutasi debet/kredit secara aman untuk perusahaan <strong>{activeBankStatement.companyName || "PT. Nusantara Mineral Sukses Abadi"}</strong>.
                         </p>
                       </div>
 

@@ -92,5 +92,7 @@ export interface BankStatementReport {
   transactions: BankStatementTransaction[];
   driveFileId?: string; // If saved to Google Drive
   driveUrl?: string;
+  companyName?: string;
+  bankName?: string;
 }
 
