@@ -1219,6 +1219,63 @@ export default function App() {
     });
   };
 
+  const handleSaveBankStatementToGoogleDrive = async () => {
+    if (!activeBankStatement) return;
+    if (!isDriveConnected || !googleToken) {
+      alert("Hubungkan akun Google Drive Anda di panel atas terlebih dahulu.");
+      return;
+    }
+
+    setCloudSyncStatus({ status: "syncing" });
+
+    try {
+      // 1. Generate Excel locally as Blob
+      const { generateBankStatementExcelBlob } = await import("./lib/excelGenerator");
+      const excelBlob = generateBankStatementExcelBlob(activeBankStatement.transactions, activeBankStatement.summary);
+
+      // 2. Search or Create root folder 'Laporan Rekening Koran' in GDrive
+      const rootFolderId = await getOrCreateFolder(googleToken, "Laporan Rekening Koran");
+
+      // 3. Search or Create company subfolder (under root folder)
+      const companyName = activeBankStatement.summary.accountHolder || "Perusahaan Belum Teridentifikasi";
+      const companyFolderId = await getOrCreateFolder(googleToken, companyName, rootFolderId);
+
+      // 4. Search or Create bank name folder (under company folder)
+      const bankName = activeBankStatement.summary.bankName || "Bank Lain";
+      const bankFolderId = await getOrCreateFolder(googleToken, bankName, companyFolderId);
+
+      // 5. Search or Create period/month folder (under bank name folder)
+      const periodName = activeBankStatement.summary.period || "Mei 2026";
+      const periodFolderId = await getOrCreateFolder(googleToken, periodName, bankFolderId);
+
+      // 6. Save the file inside this period child folder
+      const cleanCompany = companyName.replace(/[\/\\?%*:|"<>\s]+/g, "_");
+      const cleanBank = bankName.replace(/[\/\\?%*:|"<>\s]+/g, "_");
+      const cleanPeriod = periodName.replace(/[\/\\?%*:|"<>\s]+/g, "_");
+      const targetFileName = `RekeningKoran_${cleanCompany}_${cleanBank}_${cleanPeriod}.xlsx`;
+      
+      const uploadResult = await uploadFileToDrive(googleToken, periodFolderId, targetFileName, excelBlob);
+
+      // Update state
+      const updated = {
+        ...activeBankStatement,
+        driveFileId: uploadResult.id,
+        driveUrl: uploadResult.webViewLink
+      };
+
+      setActiveBankStatement(updated);
+      setBankStatements(bankStatements.map(s => s.id === updated.id ? updated : s));
+      setCloudSyncStatus({ status: "success", msg: targetFileName });
+
+      alert(`Sukses! Laporan rekening koran berhasil diconvert menjadi Excel (.xlsx), kemudian diunggah secara aman dan otomatis tersimpan rapi ke akun Google Drive Anda dalam folder: "Laporan Rekening Koran > ${companyName} > ${bankName} > ${periodName}"`);
+
+    } catch (err: any) {
+      console.error(err);
+      setCloudSyncStatus({ status: "error", msg: err.message });
+      alert(`Sinkronisasi Gagal: ${err.message}. Pastikan koneksi dan kredensial token Anda valid.`);
+    }
+  };
+
   // Inject beautiful preset templates/samples for user convenience to showcase Gemini parsing in 1-click
   const handleLoadDemoPettyCash = (demoType: "general" | "material") => {
     setIsParsing(true);
@@ -1459,13 +1516,18 @@ export default function App() {
       const excelBlob = generatePettyCashExcelBlob(activeWorkspaceReport.transactions, activeWorkspaceReport.summary);
 
       // 2. Search or Create root folder 'Laporan Petty Cash Lapangan' in GDrive
-      const folderId = await getOrCreateFolder(googleToken, "Laporan Petty Cash Lapangan");
+      const rootFolderId = await getOrCreateFolder(googleToken, "Laporan Petty Cash Lapangan");
 
-      // 3. Create monthly child folder, e.g., 'Juni 2026'
-      const monthFolderId = await getOrCreateFolder(googleToken, `Petty Cash - ${activeWorkspaceReport.summary.reportMonth || 'Belum Terkategori'}`);
+      // 3. Search or Create petty cash holder subfolder (under root folder)
+      const holderName = activeWorkspaceReport.summary.workerName || "Pekerja Lapangan";
+      const holderFolderId = await getOrCreateFolder(googleToken, holderName, rootFolderId);
 
-      // Wait, let's put the file inside this child folder
-      const targetFileName = `Laporan_PettyCash_${activeWorkspaceReport.summary.workerName || "Pekerja"}_${activeWorkspaceReport.summary.reportMonth.replace(" ", "_")}.xlsx`;
+      // 4. Create monthly child folder under holder folder
+      const monthFolderName = `Petty Cash - ${activeWorkspaceReport.summary.reportMonth || 'Belum Terkategori'}`;
+      const monthFolderId = await getOrCreateFolder(googleToken, monthFolderName, holderFolderId);
+
+      // 5. Save the file inside this monthly child folder
+      const targetFileName = `Laporan_PettyCash_${holderName}_${(activeWorkspaceReport.summary.reportMonth || "Belum_Terkategori").replace(" ", "_")}.xlsx`;
       
       const uploadResult = await uploadFileToDrive(googleToken, monthFolderId, targetFileName, excelBlob);
 
@@ -1480,9 +1542,7 @@ export default function App() {
       setPettyCashReports(pettyCashReports.map(r => r.id === updated.id ? updated : r));
       setCloudSyncStatus({ status: "success", msg: targetFileName });
 
-      // Move newly created monthly folder under root folder for neat organization
-      // We can directly present success
-      alert(`Sukses! Laporan petty cash berhasil diconvert menjadi Excel (.xlsx), kemudian diunggah secara aman dan otomatis tersimpan rapi ke akun Google Drive Anda dalam folder: "Laporan Petty Cash Lapangan > Petty Cash - ${activeWorkspaceReport.summary.reportMonth}"`);
+      alert(`Sukses! Laporan petty cash berhasil diconvert menjadi Excel (.xlsx), kemudian diunggah secara aman dan otomatis tersimpan rapi ke akun Google Drive Anda dalam folder: "Laporan Petty Cash Lapangan > ${holderName} > ${monthFolderName}"`);
 
     } catch (err: any) {
       console.error(err);
@@ -5425,6 +5485,21 @@ export default function App() {
                       </div>
 
                       <div className="flex flex-wrap gap-2">
+                        {isDriveConnected ? (
+                          <button
+                            onClick={handleSaveBankStatementToGoogleDrive}
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-md shadow-indigo-950/40 cursor-pointer flex items-center gap-1.5"
+                          >
+                            <CloudUpload className="w-4 h-4" />
+                            <span>Simpan ke Cloud Drive</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 flex items-center gap-1 bg-slate-800 border border-slate-700 px-3.5 py-2.5 rounded-xl">
+                            <Globe className="w-3.5 h-3.5 text-slate-500" />
+                            Google Drive Offline
+                          </span>
+                        )}
+
                         <button
                           onClick={handleLocalDownloadBankStatement}
                           className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-md shadow-emerald-950/40 cursor-pointer flex items-center gap-1.5 animate-bounce"

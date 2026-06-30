@@ -90,5 +90,7 @@ export interface BankStatementReport {
   uploadedAt: string;
   summary: BankStatementSummary;
   transactions: BankStatementTransaction[];
+  driveFileId?: string; // If saved to Google Drive
+  driveUrl?: string;
 }
 

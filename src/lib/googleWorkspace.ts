@@ -4,11 +4,15 @@
  */
 
 // Helper to create a folder in Google Drive
-export async function createGoogleDriveFolder(accessToken: string, folderName: string): Promise<string> {
-  const metadata = {
+export async function createGoogleDriveFolder(accessToken: string, folderName: string, parentId?: string): Promise<string> {
+  const metadata: any = {
     name: folderName,
     mimeType: "application/vnd.google-apps.folder",
   };
+
+  if (parentId) {
+    metadata.parents = [parentId];
+  }
 
   const response = await fetch("https://www.googleapis.com/drive/v3/files", {
     method: "POST",
@@ -29,9 +33,13 @@ export async function createGoogleDriveFolder(accessToken: string, folderName: s
 }
 
 // Helper to check if a folder exists, otherwise create it
-export async function getOrCreateFolder(accessToken: string, folderName: string): Promise<string> {
+export async function getOrCreateFolder(accessToken: string, folderName: string, parentId?: string): Promise<string> {
   // Search for folder first
-  const query = encodeURIComponent(`name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+  let queryStr = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  if (parentId) {
+    queryStr += ` and '${parentId}' in parents`;
+  }
+  const query = encodeURIComponent(queryStr);
   const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${query}&spaces=drive&fields=files(id,name)`;
 
   const response = await fetch(searchUrl, {
@@ -49,7 +57,7 @@ export async function getOrCreateFolder(accessToken: string, folderName: string)
   }
 
   // Double-check or create new if not found
-  return await createGoogleDriveFolder(accessToken, folderName);
+  return await createGoogleDriveFolder(accessToken, folderName, parentId);
 }
 
 // Helper to upload a file (like the generated Excel Blob) to Google Drive in a specific folder
