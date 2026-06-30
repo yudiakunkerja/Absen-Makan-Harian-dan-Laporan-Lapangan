@@ -71,6 +71,7 @@ export interface BankStatementTransaction {
   amount: number;
   type: "DEBIT" | "CREDIT";
   balance?: number;
+  pemakaian?: string;
 }
 
 export interface BankStatementSummary {

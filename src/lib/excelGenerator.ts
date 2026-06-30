@@ -120,6 +120,7 @@ export function generateBankStatementExcelBlob(
     "Tipe Mutasi": t.type === "DEBIT" ? "Debet / Keluar (DEBIT)" : "Kredit / Masuk (CREDIT)",
     Jumlah: t.amount,
     "Saldo Akhir": t.balance || "-",
+    Pemakaian: t.pemakaian || "-",
   }));
 
   // Create sheet
@@ -133,6 +134,7 @@ export function generateBankStatementExcelBlob(
     { wch: 25 }, // Tipe Mutasi
     { wch: 18 }, // Jumlah
     { wch: 18 }, // Saldo Akhir
+    { wch: 30 }, // Pemakaian
   ];
   ws["!cols"] = maxCols;
 

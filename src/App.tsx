@@ -334,11 +334,32 @@ export default function App() {
       const exists = filtered.find(f => f.id === activeBankStatement?.id);
       if (!exists) {
         setActiveBankStatement(filtered[0]);
+      } else if (exists !== activeBankStatement) {
+        setActiveBankStatement(exists);
       }
     } else {
       setActiveBankStatement(null);
     }
-  }, [selectedRkCompany, selectedRkBank, bankStatements, activeBankStatement?.id]);
+  }, [selectedRkCompany, selectedRkBank, bankStatements, activeBankStatement]);
+
+  const handleUpdateTransactionPemakaian = (reportId: string, txIdx: number, value: string) => {
+    setBankStatements((prev) =>
+      prev.map((report) => {
+        if (report.id === reportId) {
+          const updatedTransactions = [...report.transactions];
+          updatedTransactions[txIdx] = {
+            ...updatedTransactions[txIdx],
+            pemakaian: value,
+          };
+          return {
+            ...report,
+            transactions: updatedTransactions,
+          };
+        }
+        return report;
+      })
+    );
+  };
 
   // Self-profile editing states
   const [editBankName, setEditBankName] = useState<string>("");
@@ -6120,6 +6141,7 @@ export default function App() {
                             <th className="px-4 py-3 font-semibold text-center">Tipe</th>
                             <th className="px-4 py-3 font-semibold text-right">Nominal</th>
                             <th className="px-4 py-3 font-semibold text-right">Saldo</th>
+                            <th className="px-4 py-3 font-semibold min-w-[180px]">Pemakaian</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -6144,6 +6166,15 @@ export default function App() {
                               </td>
                               <td className="px-4 py-3 font-medium text-right text-slate-500 whitespace-nowrap">
                                 {tx.balance ? `Rp ${tx.balance.toLocaleString("id-ID")}` : "-"}
+                              </td>
+                              <td className="px-4 py-3 min-w-[180px]">
+                                <input
+                                  type="text"
+                                  placeholder="Contoh: Beli bensin, ATK, dll..."
+                                  value={tx.pemakaian || ""}
+                                  onChange={(e) => handleUpdateTransactionPemakaian(activeBankStatement.id, idx, e.target.value)}
+                                  className="w-full bg-slate-50 border border-slate-250 rounded-lg px-2.5 py-1 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-1 focus:ring-indigo-500 font-medium placeholder:text-slate-400 placeholder:italic transition-all"
+                                />
                               </td>
                             </tr>
                           ))}
