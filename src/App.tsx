@@ -1853,12 +1853,9 @@ export default function App() {
     const newWorker: Worker = {
       id: "W0" + (workers.length + 1),
       name: newWorkerName,
-      role: newWorkerRole || "Pekerja Lapangan",
+      role: "Pekerja",
       isActive: true,
-      bankName: newWorkerBankName || undefined,
-      bankAccount: newWorkerBankAccount || undefined,
       phoneNumber: newWorkerPhoneNumber || undefined,
-      nik: newWorkerNik || undefined,
       updatedAt: Date.now(),
     };
 
@@ -1874,11 +1871,11 @@ export default function App() {
   const handleOpenEditWorker = (worker: Worker) => {
     setEditingWorker(worker);
     setEditWorkerName(worker.name);
-    setEditWorkerRole(worker.role);
-    setEditWorkerBankName(worker.bankName || "");
-    setEditWorkerBankAccount(worker.bankAccount || "");
+    setEditWorkerRole("Pekerja");
+    setEditWorkerBankName("");
+    setEditWorkerBankAccount("");
     setEditWorkerPhoneNumber(worker.phoneNumber || "");
-    setEditWorkerNik(worker.nik || "");
+    setEditWorkerNik("");
   };
 
   const handleSaveEditWorker = (e: React.FormEvent) => {
@@ -1891,11 +1888,8 @@ export default function App() {
           ? {
               ...w,
               name: editWorkerName,
-              role: editWorkerRole || "Pekerja Lapangan",
-              bankName: editWorkerBankName || undefined,
-              bankAccount: editWorkerBankAccount || undefined,
+              role: "Pekerja",
               phoneNumber: editWorkerPhoneNumber || undefined,
-              nik: editWorkerNik || undefined,
               updatedAt: Date.now(),
             }
           : w
@@ -6219,6 +6213,19 @@ export default function App() {
                       <Plus className="w-4 h-4" />
                       <span>Tambah Pekerja</span>
                     </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm("Apakah Anda yakin ingin menghapus seluruh data pekerja? Tindakan ini tidak dapat dibatalkan.")) {
+                          setWorkers([]);
+                          localStorage.setItem("pekerja_uang_makan", JSON.stringify([]));
+                        }
+                      }}
+                      className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer border border-rose-200"
+                      title="Kosongkan seluruh data pekerja lapangan"
+                    >
+                      <Trash className="w-3.5 h-3.5" />
+                      <span>Bersihkan Semua</span>
+                    </button>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">Daftar karyawan aktif yang berhak mendapatkan jatah uang makan harian.</p>
                 </div>
@@ -6281,8 +6288,7 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200">
                       <th className="py-3 px-4">Nama Pekerja</th>
-                      <th className="py-3 px-4">Jabatan</th>
-                      <th className="py-3 px-4">Kontak & Rekening</th>
+                      <th className="py-3 px-4">No. Telepon / WA</th>
                       <th className="py-3 px-4 text-center">Status</th>
                       <th className="py-3 px-4 text-center">Aksi</th>
                     </tr>
@@ -6308,14 +6314,10 @@ export default function App() {
                               <div className="font-bold text-slate-900">{worker.name}</div>
                               <div className="flex flex-col gap-0.5 mt-0.5">
                                 <span className="text-[10px] font-mono text-slate-500 font-medium">ID: {worker.id}</span>
-                                {worker.nik && (
-                                  <span className="text-[10px] font-mono text-slate-400 font-medium">NIK: {worker.nik}</span>
-                                )}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 text-slate-700 font-medium">{worker.role}</td>
                         <td className="py-3.5 px-4">
                           <div className="text-slate-700 font-medium">{worker.phoneNumber || "-"}</div>
                           
@@ -6361,15 +6363,6 @@ export default function App() {
                               </button>
                             )}
                           </div>
-
-                          {worker.bankAccount ? (
-                            <div className="text-xs text-slate-500 mt-1.5 font-mono flex items-center gap-1">
-                              <span className="font-bold text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded text-[9px] uppercase tracking-wider border border-indigo-100">{worker.bankName || "BANK"}</span>
-                              <span>{worker.bankAccount}</span>
-                            </div>
-                          ) : (
-                            <div className="text-[10px] text-slate-400 italic mt-1.5">Belum ada data rekening</div>
-                          )}
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           <button
@@ -6455,51 +6448,6 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nomor Induk Karyawan (NIK)</label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: 3273xxxxxxxxxxxx"
-                      value={newWorkerNik}
-                      onChange={(e) => setNewWorkerNik(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Jabatan / Peran Lapangan</label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: Tukang Kayu / Helper"
-                      value={newWorkerRole}
-                      onChange={(e) => setNewWorkerRole(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Nama Bank</label>
-                      <input
-                        type="text"
-                        placeholder="BCA / Mandiri"
-                        value={newWorkerBankName}
-                        onChange={(e) => setNewWorkerBankName(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 uppercase"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">No. Rekening</label>
-                      <input
-                        type="text"
-                        placeholder="No. Rekening"
-                        value={newWorkerBankAccount}
-                        onChange={(e) => setNewWorkerBankAccount(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Nomor Telepon / WA</label>
                     <input
                       type="text"
@@ -6557,51 +6505,6 @@ export default function App() {
                       onChange={(e) => setEditWorkerName(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
                     />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nomor Induk Karyawan (NIK)</label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: 3273xxxxxxxxxxxx"
-                      value={editWorkerNik}
-                      onChange={(e) => setEditWorkerNik(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Jabatan / Peran Lapangan</label>
-                    <input
-                      type="text"
-                      required
-                      value={editWorkerRole}
-                      onChange={(e) => setEditWorkerRole(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Nama Bank</label>
-                      <input
-                        type="text"
-                        placeholder="BCA / Mandiri / BRI"
-                        value={editWorkerBankName}
-                        onChange={(e) => setEditWorkerBankName(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium uppercase"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Nomor Rekening</label>
-                      <input
-                        type="text"
-                        placeholder="Contoh: 12345678"
-                        value={editWorkerBankAccount}
-                        onChange={(e) => setEditWorkerBankAccount(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                      />
-                    </div>
                   </div>
 
                   <div>
@@ -7051,7 +6954,6 @@ export default function App() {
                                 <div className="space-y-0.5">
                                   <div className="flex items-center gap-2">
                                     <span className="font-bold text-xs text-slate-900">{w.name}</span>
-                                    <span className="text-[10px] text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded font-mono font-medium">{w.role}</span>
                                   </div>
                                   <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
                                     <Phone className="w-3 h-3 text-slate-400" />
