@@ -419,7 +419,28 @@ export default function App() {
 
   // Bulk WA broadcast panel
   const [showBulkWA, setShowBulkWA] = useState<boolean>(false);
-  const [bulkSentStatus, setBulkSentStatus] = useState<Record<string, boolean>>({});
+  const [bulkSentStatus, setBulkSentStatusState] = useState<Record<string, boolean>>(() => {
+    try {
+      const todayStr = formatLocalYYYYMMDD(new Date());
+      const stored = localStorage.getItem(`manual_sent_${todayStr}`);
+      return stored ? JSON.parse(stored) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  const setBulkSentStatus = (updater: Record<string, boolean> | ((prev: Record<string, boolean>) => Record<string, boolean>)) => {
+    setBulkSentStatusState(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try {
+        const todayStr = formatLocalYYYYMMDD(new Date());
+        localStorage.setItem(`manual_sent_${todayStr}`, JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
   const [waMethod, setWaMethod] = useState<"desktop" | "web">(() => {
     return (localStorage.getItem("wa_method") as "desktop" | "web") || "desktop";
   });
@@ -6319,48 +6340,88 @@ export default function App() {
                           </div>
                         </td>
                         <td className="py-3.5 px-4">
-                          <div className="text-slate-700 font-medium">{worker.phoneNumber || "-"}</div>
-                          
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             {worker.phoneNumber && (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}&pin=${attendancePin}\n\nYuk, langsung diklik link-nya ya! Pastikan untuk mengaktifkan dan menyetujui izin lokasi (GPS) di HP Anda, kemudian langsung tekan tombol check-in di dalam aplikasi.\n\nSetelah berhasil, Anda akan menerima pesan pop-up konfirmasi sukses. Selamat bekerja hari ini, dan besok jangan lupa untuk absen kembali ya agar uang makannya selalu lancar! Semangat terus dan jaga keselamatan kerja! 😊✨`;
-                                  setSendingBotMsgId(worker.id);
-                                  try {
-                                    const res = await fetch("/api/wa/send-test", {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({
-                                        phone: worker.phoneNumber,
-                                        message: customMsg,
-                                      }),
-                                    });
-                                    const data = await res.json();
-                                    if (data.success) {
-                                      alert(`Pesan absensi berhasil dikirim secara otomatis oleh Bot ke ${worker.name}!`);
-                                    } else {
-                                      alert(`Gagal mengirim via Bot WA: ${data.error || "Pastikan Bot WhatsApp sudah terhubung di tab Ringkasan & Analitik."}`);
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}&pin=${attendancePin}\n\nYuk, langsung diklik link-nya ya! Pastikan untuk mengaktifkan dan menyetujui izin lokasi (GPS) di HP Anda, kemudian langsung tekan tombol check-in di dalam aplikasi.\n\nSetelah berhasil, Anda akan menerima pesan pop-up konfirmasi sukses. Selamat bekerja hari ini, dan besok jangan lupa untuk absen kembali ya agar uang makannya selalu lancar! Semangat terus dan jaga keselamatan kerja! 😊✨`;
+                                    setSendingBotMsgId(worker.id);
+                                    try {
+                                      const res = await fetch("/api/wa/send-test", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          phone: worker.phoneNumber,
+                                          message: customMsg,
+                                        }),
+                                      });
+                                      const data = await res.json();
+                                      if (data.success) {
+                                        alert(`Pesan absensi berhasil dikirim secara otomatis oleh Bot ke ${worker.name}!`);
+                                      } else {
+                                        alert(`Gagal mengirim via Bot WA: ${data.error || "Pastikan Bot WhatsApp sudah terhubung di tab Ringkasan & Analitik."}`);
+                                      }
+                                    } catch (err) {
+                                      console.error("Gagal mengirim pesan via Bot:", err);
+                                      alert("Terjadi kesalahan jaringan saat mencoba mengirim pesan.");
+                                    } finally {
+                                      setSendingBotMsgId(null);
                                     }
-                                  } catch (err) {
-                                    console.error("Gagal mengirim pesan via Bot:", err);
-                                    alert("Terjadi kesalahan jaringan saat mencoba mengirim pesan.");
-                                  } finally {
-                                    setSendingBotMsgId(null);
+                                  }}
+                                  disabled={sendingBotMsgId === worker.id}
+                                  className="text-[9px] bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-350 text-white px-1.5 py-0.5 rounded transition flex items-center gap-1 font-bold cursor-pointer"
+                                  title="Kirim pesan absensi langsung menggunakan Bot WhatsApp Server"
+                                >
+                                  {sendingBotMsgId === worker.id ? (
+                                    <div className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                  ) : (
+                                    <Cpu className="w-2.5 h-2.5" />
+                                  )}
+                                  <span>{sendingBotMsgId === worker.id ? "Mengirim..." : "Kirim via Bot"}</span>
+                                </button>
+
+                                {(() => {
+                                  const isSentToday = !!bulkSentStatus[worker.id];
+                                  const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}&pin=${attendancePin}\n\nYuk, langsung diklik link-nya ya! Pastikan untuk mengaktifkan dan menyetujui izin lokasi (GPS) di HP Anda, kemudian langsung tekan tombol check-in di dalam aplikasi.\n\nSetelah berhasil, Anda akan menerima pesan pop-up konfirmasi sukses. Selamat bekerja hari ini, dan besok jangan lupa untuk absen kembali ya agar uang makannya selalu lancar! Semangat terus dan jaga keselamatan kerja! 😊✨`;
+                                  const encodedMsg = encodeURIComponent(customMsg);
+                                  let phoneClean = worker.phoneNumber?.replace(/[^0-9]/g, "") || "";
+                                  if (phoneClean.startsWith("0")) {
+                                    phoneClean = "62" + phoneClean.slice(1);
                                   }
-                                }}
-                                disabled={sendingBotMsgId === worker.id}
-                                className="text-[9px] bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 text-white px-1.5 py-0.5 rounded transition flex items-center gap-1 font-bold cursor-pointer"
-                                title="Kirim pesan absensi langsung menggunakan Bot WhatsApp Server"
-                              >
-                                {sendingBotMsgId === worker.id ? (
-                                  <div className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                  <Cpu className="w-2.5 h-2.5" />
-                                )}
-                                <span>{sendingBotMsgId === worker.id ? "Mengirim..." : "Kirim via Bot WA"}</span>
-                              </button>
+                                  const waUrl = waMethod === "desktop"
+                                    ? `whatsapp://send?phone=${phoneClean}&text=${encodedMsg}`
+                                    : `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
+
+                                  if (isSentToday) {
+                                    return (
+                                      <span 
+                                        className="text-[9px] bg-slate-100 text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-bold cursor-not-allowed select-none"
+                                        title="Pengingat manual sudah dikirim hari ini (maksimal 1x per hari)"
+                                      >
+                                        ✓ Sudah Dikirim
+                                      </span>
+                                    );
+                                  }
+
+                                  return (
+                                    <a
+                                      href={waUrl}
+                                      target={waMethod === "desktop" ? "_self" : "_blank"}
+                                      rel="noreferrer"
+                                      onClick={() => {
+                                        setBulkSentStatus(prev => ({ ...prev, [worker.id]: true }));
+                                      }}
+                                      className="text-[9px] bg-emerald-600 hover:bg-emerald-700 text-white px-1.5 py-0.5 rounded transition flex items-center gap-1 font-bold cursor-pointer"
+                                      title="Kirim pengingat secara manual via HP atau WhatsApp Web Anda"
+                                    >
+                                      <MessageSquare className="w-2.5 h-2.5" />
+                                      <span>WA Manual</span>
+                                    </a>
+                                  );
+                                })()}
+                              </>
                             )}
                           </div>
                         </td>
@@ -6991,7 +7052,14 @@ export default function App() {
                                     <span>{copiedWorkerMsgId === w.id ? "Pesan Tersalin!" : "Salin Pesan"}</span>
                                   </button>
 
-                                  {w.phoneNumber ? (
+                                  {isSent ? (
+                                    <span
+                                      className="bg-slate-100 text-slate-400 border border-slate-200 font-bold text-[11px] px-3 py-1.5 rounded-lg select-none cursor-not-allowed"
+                                      title="Pengingat manual sudah dikirim hari ini (maksimal 1x per hari)"
+                                    >
+                                      ✓ Sudah Dikirim
+                                    </span>
+                                  ) : w.phoneNumber ? (
                                     <a
                                       href={waUrl}
                                       target={waMethod === "desktop" ? "_self" : "_blank"}
